@@ -1,6 +1,6 @@
 'use strict';
 
-const version = 5;
+const version = 7;
 let isOnline = true;
 let isLoggedIn = false;
 let cacheName = `ramblings-${version}`;
@@ -26,9 +26,50 @@ const urlsToCache = {
 self.addEventListener('install', onInstall);
 self.addEventListener('activate', onActivate);
 self.addEventListener('message', onMessage);
+self.addEventListener('fetch', onFetch);
 
 main().catch(console.error);
 
+async function onFetch(fetchEvent) {
+  fetchEvent.respondWith(router(fetchEvent.request));
+}
+
+async function router(request) {
+  let url = new URL(request.url);
+  let reqURL = url.pathname;
+  let cache = await caches.open(cacheName);
+
+  if (url.origin === location.origin) {
+    // try to make a fetch req
+    let res;
+
+    if (isOnline) {
+      try {
+        let fetchOptions = {
+          method: request.method,
+          headers: request.headers,
+          credentials: 'omit',
+          cache: 'no-cache'
+        };
+
+        res = await fetch(request.url, fetchOptions);
+
+        if (res && res.ok) {
+          await cache.put(reqURL, res.clone());
+
+          return res;
+        }
+      } catch (error) {}
+    }
+    res = await cache.match(reqURL);
+
+    if (res) {
+      return res.clone();
+    }
+  }
+
+  //TODO: figure out CORS requests
+}
 async function onInstall(event) {
   console.log(`Service Worker ${version} is installed.`);
   self.skipWaiting();
