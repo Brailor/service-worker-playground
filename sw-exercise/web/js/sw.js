@@ -1,6 +1,6 @@
 'use strict';
 
-const version = 4;
+const version = 5;
 let isOnline = true;
 let isLoggedIn = false;
 let cacheName = `ramblings-${version}`;
@@ -43,8 +43,9 @@ async function main() {
 }
 
 async function handleActivation(params) {
-  await clients.claim();
+  await clearCaches();
   await cacheLoggedOutFiles(/*forceReload=*/ true);
+  await clients.claim();
 
   console.log(`Service Worker ${version} is activated.`);
 }
@@ -99,6 +100,24 @@ async function cacheLoggedOutFiles(forceReload = false) {
           await cache.put(url, res);
         }
       } catch (error) {}
+    })
+  );
+}
+
+async function clearCaches() {
+  let cacheNames = await caches.keys();
+  let oldCachesNames = cacheNames.filter(function matchOldCache(cacheName) {
+    if (/^ramblings-\d+$/.test(cacheName)) {
+      let [, cacheVersion] = cacheName.match(/^ramblings-(\d+)$/);
+      cacheVersion = cacheVersion != null ? Number(cacheVersion) : cacheVersion;
+
+      return cacheVersion > 0 && cacheVersion !== version;
+    }
+  });
+
+  return Promise.all(
+    oldCachesNames.map(function deleteCache(cacheName) {
+      return caches.delete(cacheName);
     })
   );
 }
