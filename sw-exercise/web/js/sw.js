@@ -1,6 +1,6 @@
 'use strict';
 
-const version = 7;
+const version = 8;
 let isOnline = true;
 let isLoggedIn = false;
 let cacheName = `ramblings-${version}`;
@@ -40,36 +40,113 @@ async function router(request) {
   let cache = await caches.open(cacheName);
 
   if (url.origin === location.origin) {
-    // try to make a fetch req
-    let res;
+    // if it is an API call
+    if (/^\/api\/.+$/.test(reqURL)) {
+      let res;
 
-    if (isOnline) {
-      try {
-        let fetchOptions = {
-          method: request.method,
-          headers: request.headers,
-          credentials: 'omit',
-          cache: 'no-cache'
-        };
+      if (isOnline) {
+        try {
+          let fetchOptions = {
+            method: request.method,
+            headers: request.headers,
+            credentials: 'same-origin',
+            cache: 'no-store'
+          };
 
-        res = await fetch(request.url, fetchOptions);
+          res = await fetch(request.url, fetchOptions);
 
-        if (res && res.ok) {
-          await cache.put(reqURL, res.clone());
+          if (res && res.ok) {
+            // cache only the get requests
+            if (request.method === 'GET') {
+              await cache.put(reqURL, res.clone());
+            }
 
-          return res;
-        }
-      } catch (error) {}
+            return res;
+          }
+        } catch (error) {}
+      }
+      res = await cache.match(reqURL);
+
+      if (res) {
+        return res.clone();
+      }
+
+      return notFoundResponse();
     }
-    res = await cache.match(reqURL);
+    // requesting a page
+    else if (request.headers.get('Accept').includes('text/html')) {
+      // login-aware page
+      if (/^\/(?:login|logout|add-post)$/.test(reqURL)) {
+      } else {
+        let res;
 
-    if (res) {
-      return res.clone();
+        //network first, then cache for pages
+        if (isOnline) {
+          try {
+            let fetchOptions = {
+              method: request.method,
+              headers: request.headers,
+              cache: 'no-store'
+            };
+
+            res = await fetch(request.url, fetchOptions);
+
+            if (res && res.ok) {
+              if (!res.headers.get('X-Not-Found')) {
+                await cache.put(reqURL, res.clone());
+              }
+            }
+
+            return res;
+          } catch (error) {}
+        }
+        res = await cache.match(reqURL);
+
+        if (res) {
+          return res.clone();
+        }
+
+        return await cache.match('/offline');
+      }
+    } else {
+      //cache first
+      let res = await cache.match(reqURL);
+
+      if (res) {
+        return res;
+      }
+
+      if (isOnline) {
+        try {
+          let fetchOptions = {
+            method: request.method,
+            headers: request.headers,
+            cache: 'no-store'
+          };
+
+          res = await fetch(request.url, fetchOptions);
+
+          if (res && res.ok) {
+            await cache.put(reqURL, res.clone());
+            return res;
+          }
+        } catch (error) {}
+      }
+
+      return notFoundResponse();
     }
   }
 
   //TODO: figure out CORS requests
 }
+
+function notFoundResponse() {
+  return new Response('', {
+    status: 404,
+    statusText: 'Not found'
+  });
+}
+
 async function onInstall(event) {
   console.log(`Service Worker ${version} is installed.`);
   self.skipWaiting();
